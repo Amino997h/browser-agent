@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Agent - واجهة الويب</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+        body { font-family: 'Tajawal', sans-serif; }
+        .log-container {
+            font-family: 'Courier New', Courier, monospace;
+            direction: ltr;
+            text-align: left;
+        }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800">
+    <div class="container mx-auto px-4 py-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">🤖 Browser Agent</h1>
+            <p class="text-gray-500">وكيل ذكاء اصطناعي محلي يعمل على المتصفح</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- إعدادات المهمة -->
+            <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <h2 class="text-xl font-bold mb-4 border-b pb-2">🎯 إعداد المهمة</h2>
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">الهدف (Goal):</label>
+                    <textarea id="goal" rows="5" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition" placeholder="مثال: ابحث عن أحدث أسعار هواتف سامسونج في موقع أمازون..."></textarea>
+                </div>
+                
+                <button id="startBtn" onclick="startAgent()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md">
+                    🚀 ابدأ المهمة
+                </button>
+                <button id="stopBtn" onclick="stopAgent()" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md mt-2 hidden">
+                    🛑 إيقاف
+                </button>
+                <button id="resumeBtn" onclick="resumeAgent()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md mt-2 hidden">
+                    ▶️ تم الحل (متابعة)
+                </button>
+            </div>
+
+            <!-- شاشة المراقبة -->
+            <div class="md:col-span-2 bg-gray-900 rounded-xl shadow-lg overflow-hidden flex flex-col h-[600px]">
+                <div class="bg-gray-800 px-4 py-3 flex justify-between items-center border-b border-gray-700">
+                    <div class="flex space-x-2 rtl:space-x-reverse">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <div class="flex items-center space-x-3 rtl:space-x-reverse">
+                        <button onclick="copyLogs()" class="text-xs font-bold bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-3 rounded shadow transition duration-200">📋 نسخ السجل</button>
+                        <span id="statusBadge" class="px-2 py-1 text-xs font-bold rounded bg-gray-600 text-white">IDLE</span>
+                    </div>
+                </div>
+                
+                <div id="logs" class="p-4 overflow-y-auto flex-1 log-container text-sm text-gray-300 space-y-4">
+                    <div class="text-center text-gray-500 mt-10 font-sans" id="placeholder">
+                        في انتظار بدء المهمة...<br>سيظهر السجل المباشر هنا.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const logsDiv = document.getElementById('logs');
+        const statusBadge = document.getElementById('statusBadge');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const resumeBtn = document.getElementById('resumeBtn');
+
+        function copyLogs() {
+            const textToCopy = logsDiv.innerText;
+            if (textToCopy.trim() === "") return;
+            navigator.clipboard.writeText(textToCopy).then(() => alert("✅ تم النسخ"));
+        }
+
+        function appendLog(html) {
+            if (document.getElementById("placeholder")) logsDiv.innerHTML = "";
+            const div = document.createElement('div');
+            div.className = 'fade-in';
+            div.innerHTML = html;
+            logsDiv.appendChild(div);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function formatLogMessage(msg) {
+            const data = JSON.parse(msg);
+            
+            if (data.type === 'status') {
+                statusBadge.textContent = data.status;
+                if (data.status === 'RUNNING') {
+                    statusBadge.className = "px-2 py-1 text-xs font-bold rounded bg-blue-500 text-white";
+                    resumeBtn.classList.add('hidden');
+                    stopBtn.classList.remove('hidden');
+                } else if (data.status === 'WAITING_USER') {
+                    statusBadge.className = "px-2 py-1 text-xs font-bold rounded bg-yellow-500 text-white";
+                    statusBadge.textContent = "CAPTCHA PAUSE";
+                    stopBtn.classList.add('hidden');
+                    resumeBtn.classList.remove('hidden');
+                } else if (data.status === 'SUCCESS' || data.status === 'FAILED') {
+                    statusBadge.className = "px-2 py-1 text-xs font-bold rounded " + (data.status==='SUCCESS'?"bg-green-500":"bg-red-500") + " text-white";
+                    startBtn.classList.remove('hidden');
+                    stopBtn.classList.add('hidden');
+                    resumeBtn.classList.add('hidden');
+                }
+                return `<div class="text-blue-400 font-bold border-b border-gray-700 pb-1 mb-2">[Status] ${data.status} | URL: ${data.url}</div>`;
+            }
+            if (data.type === 'agent') {
+                return `<div class="bg-gray-800 p-3 rounded border-l-4 border-purple-500">
+                        <div class="text-purple-400 font-bold mb-1">[Agent]</div>
+                        <div class="text-white font-mono bg-black p-2 rounded text-xs whitespace-pre-wrap">${JSON.stringify(data.command, null, 2)}</div>
+                    </div>`;
+            }
+            if (data.type === 'browser') return `<div class="text-cyan-400 mt-2">[Browser] Scraped ${data.elements} elements.</div>`;
+            if (data.type === 'action') return `<div class="text-green-400 mt-2 font-bold">[Action] ${data.result}</div>`;
+            return `<div>${msg}</div>`;
+        }
+
+        function startAgent() {
+            const goal = document.getElementById('goal').value;
+            if (!goal) return alert("الرجاء إدخال الهدف.");
+            
+            logsDiv.innerHTML = "";
+            startBtn.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
+            resumeBtn.classList.add('hidden');
+            statusBadge.textContent = "INITIALIZING";
+            
+            ws = new WebSocket("ws://" + window.location.host + "/ws");
+            ws.onopen = () => ws.send(JSON.stringify({ goal: goal }));
+            ws.onmessage = e => appendLog(formatLogMessage(e.data));
+            ws.onclose = () => { startBtn.classList.remove('hidden'); stopBtn.classList.add('hidden'); };
+        }
+
+        function stopAgent() {
+            if (ws) ws.close();
+        }
+
+        function resumeAgent() {
+            if (ws) {
+                ws.send(JSON.stringify({ action: "resume" }));
+                appendLog(`<div class="text-yellow-400 font-bold mt-2">[User] ضغط على متابعة المهمة...</div>`);
+                resumeBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
