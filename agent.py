@@ -77,7 +77,7 @@ Links: {json.dumps([l.model_dump() for l in page_info.links], ensure_ascii=False
 Buttons: {json.dumps([b.model_dump() for b in page_info.buttons], ensure_ascii=False)}
 Inputs: {json.dumps([i.model_dump() for i in page_info.inputs], ensure_ascii=False)}
 
---- Recent Texts on Page ---
+--- Recent Texts on Page (including JS alerts) ---
 {json.dumps(page_info.texts, ensure_ascii=False)}
 
 --- Action History ---
@@ -101,6 +101,9 @@ IF YOU WANT TO CLICK:
 
 IF YOU WANT TO GO BACK:
 {{"command": "back"}}
+
+IF YOU WANT TO EXECUTE CUSTOM JAVASCRIPT ON THE PAGE:
+{{"command": "evaluate_js", "script": "return window.localStorage.getItem('token');"}}
 
 IF YOU NEED TEXT INPUT FROM THE USER (e.g. 2FA Code, OTP, Email):
 {{"command": "ask_user", "question": "Please enter the 2FA code from your phone", "input_type": "text"}}

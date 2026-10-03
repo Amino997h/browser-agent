@@ -1,21 +1,26 @@
 import asyncio
 import os
 from typing import Dict, Any, Optional
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, Page, BrowserContext, Dialog
 from models import ScrapedPageInfo, ScrapedElement
 
-# متغيرات عامة (Global) للحفاظ على المتصفح مفتوحاً دائماً بين المهام المختلفة
 _global_playwright = None
 _global_context = None
 
 class BrowserManager:
     def __init__(self):
         self.page: Optional[Page] = None
+        self.last_dialog: Optional[str] = None
+
+    async def _on_dialog(self, dialog: Dialog):
+        # التقاط النوافذ المنبثقة (alert, confirm, prompt)
+        self.last_dialog = f"نافذة جافاسكريبت منبثقة ({dialog.type}): {dialog.message}"
+        # الموافقة التلقائية لكي لا يعلق المتصفح
+        await dialog.accept()
 
     async def start(self, headless: bool = False):
         global _global_playwright, _global_context
         
-        # إذا لم يكن المتصفح مفتوحاً مسبقاً، قم بفتحه مرة واحدة فقط
         if _global_context is None:
             _global_playwright = await async_playwright().start()
             user_data_dir = os.path.join(os.getcwd(), "agent_profile")
@@ -50,19 +55,16 @@ class BrowserManager:
                         viewport={'width': 1280, 'height': 800}
                     )
                     
-        # اختيار نافذة (Tab) جديدة للمهمة
-        # إذا كانت هناك نافذة واحدة فقط فارغة (عند التشغيل لأول مرة)، نستخدمها
         if len(_global_context.pages) == 1 and _global_context.pages[0].url == "about:blank":
             self.page = _global_context.pages[0]
         else:
-            # عدا ذلك نفتح نافذة (Tab) جديدة تماماً لكل مهمة جديدة
             self.page = await _global_context.new_page()
             await self.page.bring_to_front()
+            
+        # ربط مستمع النوافذ المنبثقة بالصفحة
+        self.page.on("dialog", self._on_dialog)
 
     async def close(self):
-        # تم إلغاء كود الإغلاق!
-        # المتصفح سيبقى مفتوحاً لتتمكن من رؤية النتيجة النهائية
-        # ولن يغلق إلا إذا قمت بإغلاق نافذة السيرفر (الشاشة السوداء) يدوياً.
         pass
 
     async def execute_command(self, command: Dict[str, Any]) -> str:
@@ -96,6 +98,11 @@ class BrowserManager:
                 value = command["value"]
                 await self.page.select_option(selector, value, timeout=5000)
                 return f"Selected '{value}' in {selector}"
+                
+            elif cmd == "evaluate_js":
+                script = command["script"]
+                result = await self.page.evaluate(script)
+                return f"JS Result: {result}"
                 
             return f"Unknown or unhandled command: {cmd}"
         except Exception as e:
@@ -159,4 +166,10 @@ class BrowserManager:
         """
         
         data = await self.page.evaluate(js_script)
+        
+        # إضافة رسالة النافذة المنبثقة إن وجدت إلى النصوص لكي يقرأها الذكاء الاصطناعي
+        if self.last_dialog:
+            data['texts'].insert(0, self.last_dialog)
+            self.last_dialog = None
+            
         return ScrapedPageInfo(**data)

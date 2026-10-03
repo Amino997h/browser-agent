@@ -2,12 +2,13 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal, Dict, Any
 
 class AgentCommand(BaseModel):
-    command: Literal["navigate", "back", "click", "type", "select", "finish", "wait_for_user", "ask_user"]
+    command: Literal["navigate", "back", "click", "type", "select", "finish", "wait_for_user", "ask_user", "evaluate_js"]
     url: Optional[str] = None
     selector: Optional[str] = None
     description: Optional[str] = None
     text: Optional[str] = None
     value: Optional[str] = None
+    script: Optional[str] = None
     status: Optional[Literal["success", "failed"]] = None
     message: Optional[str] = None
     question: Optional[str] = None
