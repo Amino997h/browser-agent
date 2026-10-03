@@ -23,13 +23,10 @@ class BrowserAgent:
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
         
-        # استخراج كتلة الجيسون فقط
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             text = match.group(0)
             
-        # تنظيف أي ماركداون للروابط أو الإيميلات
-        # يحول [groupe548@gmail.com](mailto:groupe548@gmail.com) إلى groupe548@gmail.com
         text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
         text = text.replace('"/}', '"}').replace('"}](', '"}')
         
@@ -67,10 +64,9 @@ OUTPUT EXACTLY LIKE THE EXAMPLE ABOVE (WITH YOUR TARGET URL):"""
                 
             return url
         except Exception as e:
-            print(f"Error getting start URL. Raw: {content}. Error: {e}")
             return "https://www.google.com"
 
-    def determine_next_action(self, goal: str, page_info: ScrapedPageInfo, history_summary: str) -> Dict[str, Any]:
+    def determine_next_action(self, goal: str, page_info: ScrapedPageInfo, history_summary: str, user_feedback: str = "") -> Dict[str, Any]:
         prompt = f"""
 Goal: {goal}
 Current URL: {page_info.url}
@@ -87,29 +83,35 @@ Inputs: {json.dumps([i.model_dump() for i in page_info.inputs], ensure_ascii=Fal
 --- Action History ---
 {history_summary}
 
+--- Recent User Feedback ---
+{user_feedback if user_feedback else 'No feedback.'}
+
 Based on the goal and current state, what is the next step?
 CRITICAL INSTRUCTION: You must choose EXACTLY ONE action and COPY ITS EXACT FORMAT from the examples below. 
 NEVER use Markdown for emails or links.
 
-IF YOU WANT TO NAVIGATE, COPY THIS FORMAT:
+IF YOU WANT TO NAVIGATE:
 {{"command": "navigate", "url": "https://example.com"}}
 
-IF YOU WANT TO TYPE (e.g. Email or Password), COPY THIS FORMAT:
+IF YOU WANT TO TYPE:
 {{"command": "type", "selector": "[data-agent-id='1']", "text": "text to type"}}
 
-IF YOU WANT TO CLICK (e.g. Login button), COPY THIS FORMAT:
+IF YOU WANT TO CLICK:
 {{"command": "click", "selector": "[data-agent-id='2']", "description": "click button"}}
 
-IF YOU WANT TO GO BACK, COPY THIS FORMAT:
+IF YOU WANT TO GO BACK:
 {{"command": "back"}}
 
-IF YOU SEE A CAPTCHA OR VERIFICATION, COPY THIS FORMAT:
-{{"command": "wait_for_user", "message": "Captcha detected! Please solve it."}}
+IF YOU NEED TEXT INPUT FROM THE USER (e.g. 2FA Code, OTP, Email):
+{{"command": "ask_user", "question": "Please enter the 2FA code from your phone", "input_type": "text"}}
 
-IF THE GOAL IS DONE, COPY THIS FORMAT:
+IF YOU NEED THE USER TO CHOOSE AN OPTION (e.g. What to do next?):
+{{"command": "ask_user", "question": "How should I verify?", "input_type": "options", "options": ["Option 1", "Option 2"]}}
+
+IF THE GOAL IS DONE:
 {{"command": "finish", "status": "success", "message": "banana"}}
 
-IF YOU GIVE UP, COPY THIS FORMAT:
+IF YOU GIVE UP:
 {{"command": "finish", "status": "failed", "message": "apple"}}
 
 OUTPUT YOUR JSON NOW:
@@ -135,8 +137,6 @@ OUTPUT YOUR JSON NOW:
                 
             return command_json
         except json.JSONDecodeError as e:
-            print(f"JSON Decode Error. Raw content: {content}")
             return {"command": "finish", "status": "failed", "message": "apple", "description": "LLM failed to output JSON"}
         except Exception as e:
-            print(f"Error: {e}")
             return {"command": "finish", "status": "failed", "message": "apple", "description": f"API Error: {str(e)}"}

@@ -50,17 +50,22 @@ async def websocket_endpoint(websocket: WebSocket):
         await browser_manager.execute_command({"command": "navigate", "url": start_url})
         step = 1
         
+        latest_user_feedback = ""
+        
         while True:
-            # Scrape
             page_info = await browser_manager.scrape_page()
             elements_count = len(page_info.links) + len(page_info.buttons) + len(page_info.inputs)
             
             await websocket.send_text(json.dumps({"type": "status", "status": "RUNNING", "url": page_info.url}))
             await websocket.send_text(json.dumps({"type": "browser", "elements": elements_count}))
             
-            # Send to LLM
             history_summary = logger.get_history_summary()
-            command = agent.determine_next_action(goal, page_info, history_summary)
+            
+            # Send context to LLM including any recent user feedback
+            command = agent.determine_next_action(goal, page_info, history_summary, latest_user_feedback)
+            
+            # Reset feedback after LLM reads it
+            latest_user_feedback = ""
             
             await websocket.send_text(json.dumps({
                 "type": "agent", 
@@ -69,19 +74,31 @@ async def websocket_endpoint(websocket: WebSocket):
             
             cmd_type = command.get("command")
             
-            if cmd_type == "wait_for_user":
-                msg = command.get("message", "الرجاء حل الكابتشا")
+            if cmd_type == "ask_user" or cmd_type == "wait_for_user":
+                question = command.get("question") or command.get("message") or "الرجاء التدخل أو الإجابة على السؤال:"
+                input_type = command.get("input_type", "text")
+                options = command.get("options", [])
+                
                 logger.log_step(step, command, page_info.url)
                 await websocket.send_text(json.dumps({"type": "status", "status": "WAITING_USER", "url": page_info.url}))
-                await websocket.send_text(json.dumps({"type": "action", "result": f"🛑 توقف مؤقت: {msg}"}))
                 
-                # Wait until user clicks Resume
+                # Send the interaction request to frontend
+                await websocket.send_text(json.dumps({
+                    "type": "ask_user",
+                    "question": question,
+                    "input_type": input_type,
+                    "options": options
+                }))
+                
+                # Wait for user reply
                 while True:
                     response_data = await websocket.receive_text()
                     parsed = json.loads(response_data)
-                    if parsed.get("action") == "resume":
+                    if parsed.get("action") == "user_response":
+                        latest_user_feedback = parsed.get("answer", "تم بواسطة المستخدم")
                         break
                 
+                await websocket.send_text(json.dumps({"type": "action", "result": f"إجابة المستخدم: {latest_user_feedback}"}))
                 await websocket.send_text(json.dumps({"type": "status", "status": "RUNNING", "url": page_info.url}))
                 step += 1
                 continue

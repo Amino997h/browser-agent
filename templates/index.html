@@ -26,12 +26,12 @@
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <!-- إعدادات المهمة -->
-            <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
                 <h2 class="text-xl font-bold mb-4 border-b pb-2">🎯 إعداد المهمة</h2>
                 
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 mb-1">الهدف (Goal):</label>
-                    <textarea id="goal" rows="5" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition" placeholder="مثال: ابحث عن أحدث أسعار هواتف سامسونج في موقع أمازون..."></textarea>
+                    <textarea id="goal" rows="5" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition" placeholder="مثال: افتح فيسبوك وسجل الدخول..."></textarea>
                 </div>
                 
                 <button id="startBtn" onclick="startAgent()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md">
@@ -40,9 +40,23 @@
                 <button id="stopBtn" onclick="stopAgent()" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md mt-2 hidden">
                     🛑 إيقاف
                 </button>
-                <button id="resumeBtn" onclick="resumeAgent()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md mt-2 hidden">
-                    ▶️ تم الحل (متابعة)
-                </button>
+                
+                <!-- لوحة التفاعل (الأسئلة والخيارات) -->
+                <div id="interactionPanel" class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg hidden shadow-inner fade-in">
+                    <h3 class="text-yellow-800 font-bold mb-2 flex items-center">
+                        <span class="mr-2">💬</span> سؤال من الوكيل:
+                    </h3>
+                    <p id="questionText" class="text-gray-700 mb-4 text-sm font-medium"></p>
+                    
+                    <div id="inputArea" class="mb-4">
+                        <!-- يتم حقن المدخلات (نص أو أزرار خيارات) هنا برمجياً -->
+                    </div>
+                    
+                    <button id="submitAnswerBtn" onclick="submitUserAnswer()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 shadow-sm hidden">
+                        إرسال الإجابة
+                    </button>
+                </div>
+                
             </div>
 
             <!-- شاشة المراقبة -->
@@ -70,11 +84,16 @@
 
     <script>
         let ws = null;
+        let selectedOption = "";
+        
         const logsDiv = document.getElementById('logs');
         const statusBadge = document.getElementById('statusBadge');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const resumeBtn = document.getElementById('resumeBtn');
+        const interactionPanel = document.getElementById('interactionPanel');
+        const questionText = document.getElementById('questionText');
+        const inputArea = document.getElementById('inputArea');
+        const submitAnswerBtn = document.getElementById('submitAnswerBtn');
 
         function copyLogs() {
             const textToCopy = logsDiv.innerText;
@@ -98,18 +117,17 @@
                 statusBadge.textContent = data.status;
                 if (data.status === 'RUNNING') {
                     statusBadge.className = "px-2 py-1 text-xs font-bold rounded bg-blue-500 text-white";
-                    resumeBtn.classList.add('hidden');
+                    interactionPanel.classList.add('hidden');
                     stopBtn.classList.remove('hidden');
                 } else if (data.status === 'WAITING_USER') {
                     statusBadge.className = "px-2 py-1 text-xs font-bold rounded bg-yellow-500 text-white";
-                    statusBadge.textContent = "CAPTCHA PAUSE";
+                    statusBadge.textContent = "WAITING INPUT";
                     stopBtn.classList.add('hidden');
-                    resumeBtn.classList.remove('hidden');
                 } else if (data.status === 'SUCCESS' || data.status === 'FAILED') {
                     statusBadge.className = "px-2 py-1 text-xs font-bold rounded " + (data.status==='SUCCESS'?"bg-green-500":"bg-red-500") + " text-white";
                     startBtn.classList.remove('hidden');
                     stopBtn.classList.add('hidden');
-                    resumeBtn.classList.add('hidden');
+                    interactionPanel.classList.add('hidden');
                 }
                 return `<div class="text-blue-400 font-bold border-b border-gray-700 pb-1 mb-2">[Status] ${data.status} | URL: ${data.url}</div>`;
             }
@@ -119,9 +137,86 @@
                         <div class="text-white font-mono bg-black p-2 rounded text-xs whitespace-pre-wrap">${JSON.stringify(data.command, null, 2)}</div>
                     </div>`;
             }
+            if (data.type === 'ask_user') {
+                showInteractionPanel(data);
+                return `<div class="text-yellow-400 mt-2 font-bold bg-gray-800 p-2 rounded">[Agent Question] ${data.question}</div>`;
+            }
             if (data.type === 'browser') return `<div class="text-cyan-400 mt-2">[Browser] Scraped ${data.elements} elements.</div>`;
             if (data.type === 'action') return `<div class="text-green-400 mt-2 font-bold">[Action] ${data.result}</div>`;
             return `<div>${msg}</div>`;
+        }
+        
+        function showInteractionPanel(data) {
+            questionText.textContent = data.question;
+            inputArea.innerHTML = "";
+            selectedOption = "";
+            
+            if (data.input_type === 'options' && data.options && data.options.length > 0) {
+                // إنشاء أزرار الخيارات
+                const flexDiv = document.createElement('div');
+                flexDiv.className = "flex flex-col space-y-2";
+                
+                data.options.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = "text-right w-full bg-white hover:bg-indigo-50 border border-gray-300 rounded px-3 py-2 text-sm transition";
+                    btn.textContent = opt;
+                    btn.onclick = () => {
+                        // إزالة التحديد من البقية
+                        Array.from(flexDiv.children).forEach(c => {
+                            c.classList.remove('border-indigo-500', 'bg-indigo-50', 'ring-1', 'ring-indigo-500');
+                        });
+                        // إضافة التحديد للزر الحالي
+                        btn.classList.add('border-indigo-500', 'bg-indigo-50', 'ring-1', 'ring-indigo-500');
+                        selectedOption = opt;
+                        submitAnswerBtn.classList.remove('hidden');
+                    };
+                    flexDiv.appendChild(btn);
+                });
+                inputArea.appendChild(flexDiv);
+                submitAnswerBtn.classList.add('hidden'); // إخفاء زر الإرسال حتى يتم تحديد خيار
+            } 
+            else {
+                // إدخال نصي افتراضي
+                const input = document.createElement('input');
+                input.type = "text";
+                input.id = "userTextInput";
+                input.className = "w-full px-3 py-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none";
+                input.placeholder = "اكتب إجابتك هنا...";
+                input.onkeypress = (e) => { if(e.key === 'Enter') submitUserAnswer(); };
+                inputArea.appendChild(input);
+                submitAnswerBtn.classList.remove('hidden');
+                
+                setTimeout(() => input.focus(), 100);
+            }
+            
+            interactionPanel.classList.remove('hidden');
+        }
+
+        function submitUserAnswer() {
+            if (!ws) return;
+            
+            let answer = "";
+            const textInput = document.getElementById('userTextInput');
+            
+            if (textInput) {
+                answer = textInput.value.trim();
+                if (!answer) {
+                    alert("الرجاء كتابة إجابة!");
+                    return;
+                }
+            } else {
+                answer = selectedOption;
+                if (!answer) {
+                    alert("الرجاء اختيار أحد الخيارات!");
+                    return;
+                }
+            }
+            
+            ws.send(JSON.stringify({ action: "user_response", answer: answer }));
+            appendLog(`<div class="text-white font-bold mt-2 bg-indigo-500 p-2 rounded inline-block">[User] الإجابة: ${answer}</div>`);
+            
+            interactionPanel.classList.add('hidden');
+            stopBtn.classList.remove('hidden');
         }
 
         function startAgent() {
@@ -131,7 +226,7 @@
             logsDiv.innerHTML = "";
             startBtn.classList.add('hidden');
             stopBtn.classList.remove('hidden');
-            resumeBtn.classList.add('hidden');
+            interactionPanel.classList.add('hidden');
             statusBadge.textContent = "INITIALIZING";
             
             ws = new WebSocket("ws://" + window.location.host + "/ws");
@@ -142,15 +237,6 @@
 
         function stopAgent() {
             if (ws) ws.close();
-        }
-
-        function resumeAgent() {
-            if (ws) {
-                ws.send(JSON.stringify({ action: "resume" }));
-                appendLog(`<div class="text-yellow-400 font-bold mt-2">[User] ضغط على متابعة المهمة...</div>`);
-                resumeBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-            }
         }
     </script>
 </body>

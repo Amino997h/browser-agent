@@ -4,58 +4,66 @@ from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
 from models import ScrapedPageInfo, ScrapedElement
 
+# متغيرات عامة (Global) للحفاظ على المتصفح مفتوحاً دائماً بين المهام المختلفة
+_global_playwright = None
+_global_context = None
+
 class BrowserManager:
     def __init__(self):
-        self.playwright = None
-        self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
 
     async def start(self, headless: bool = False):
-        self.playwright = await async_playwright().start()
+        global _global_playwright, _global_context
         
-        # نعود للملف المنفصل (agent_profile) كما كان قبل طلب حسابك الأساسي
-        user_data_dir = os.path.join(os.getcwd(), "agent_profile")
-        
-        browser_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--start-maximized"
-        ]
-        
-        try:
-            self.context = await self.playwright.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                channel="chrome",
-                args=browser_args,
-                viewport={'width': 1280, 'height': 800}
-            )
-        except Exception:
+        # إذا لم يكن المتصفح مفتوحاً مسبقاً، قم بفتحه مرة واحدة فقط
+        if _global_context is None:
+            _global_playwright = await async_playwright().start()
+            user_data_dir = os.path.join(os.getcwd(), "agent_profile")
+            
+            browser_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized"
+            ]
+            
             try:
-                self.context = await self.playwright.chromium.launch_persistent_context(
+                _global_context = await _global_playwright.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=headless,
-                    channel="msedge",
+                    channel="chrome",
                     args=browser_args,
                     viewport={'width': 1280, 'height': 800}
                 )
             except Exception:
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
-                    headless=headless,
-                    args=browser_args,
-                    viewport={'width': 1280, 'height': 800}
-                )
-                
-        if len(self.context.pages) > 0:
-            self.page = self.context.pages[0]
+                try:
+                    _global_context = await _global_playwright.chromium.launch_persistent_context(
+                        user_data_dir=user_data_dir,
+                        headless=headless,
+                        channel="msedge",
+                        args=browser_args,
+                        viewport={'width': 1280, 'height': 800}
+                    )
+                except Exception:
+                    _global_context = await _global_playwright.chromium.launch_persistent_context(
+                        user_data_dir=user_data_dir,
+                        headless=headless,
+                        args=browser_args,
+                        viewport={'width': 1280, 'height': 800}
+                    )
+                    
+        # اختيار نافذة (Tab) جديدة للمهمة
+        # إذا كانت هناك نافذة واحدة فقط فارغة (عند التشغيل لأول مرة)، نستخدمها
+        if len(_global_context.pages) == 1 and _global_context.pages[0].url == "about:blank":
+            self.page = _global_context.pages[0]
         else:
-            self.page = await self.context.new_page()
+            # عدا ذلك نفتح نافذة (Tab) جديدة تماماً لكل مهمة جديدة
+            self.page = await _global_context.new_page()
+            await self.page.bring_to_front()
 
     async def close(self):
-        if self.context:
-            await self.context.close()
-        if self.playwright:
-            await self.playwright.stop()
+        # تم إلغاء كود الإغلاق!
+        # المتصفح سيبقى مفتوحاً لتتمكن من رؤية النتيجة النهائية
+        # ولن يغلق إلا إذا قمت بإغلاق نافذة السيرفر (الشاشة السوداء) يدوياً.
+        pass
 
     async def execute_command(self, command: Dict[str, Any]) -> str:
         if not self.page:
@@ -64,17 +72,17 @@ class BrowserManager:
         cmd = command.get("command")
         try:
             if cmd == "navigate":
-                await self.page.goto(command["url"], wait_until="networkidle", timeout=15000)
+                await self.page.goto(command["url"], wait_until="domcontentloaded", timeout=15000)
                 return f"Navigated to {command['url']}"
             
             elif cmd == "back":
-                await self.page.go_back(wait_until="networkidle", timeout=15000)
+                await self.page.go_back(wait_until="domcontentloaded", timeout=15000)
                 return "Navigated back"
                 
             elif cmd == "click":
                 selector = command["selector"]
                 await self.page.click(selector, timeout=5000)
-                await self.page.wait_for_load_state("networkidle", timeout=3000)
+                await self.page.wait_for_timeout(2000)
                 return f"Clicked element: {selector}"
                 
             elif cmd == "type":

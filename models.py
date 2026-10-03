@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional, Literal, Dict, Any
 
 class AgentCommand(BaseModel):
-    command: Literal["navigate", "back", "click", "type", "select", "finish", "wait_for_user"]
+    command: Literal["navigate", "back", "click", "type", "select", "finish", "wait_for_user", "ask_user"]
     url: Optional[str] = None
     selector: Optional[str] = None
     description: Optional[str] = None
@@ -10,6 +10,9 @@ class AgentCommand(BaseModel):
     value: Optional[str] = None
     status: Optional[Literal["success", "failed"]] = None
     message: Optional[str] = None
+    question: Optional[str] = None
+    input_type: Optional[Literal["text", "options"]] = None
+    options: Optional[List[str]] = None
 
 class ScrapedElement(BaseModel):
     text: str
