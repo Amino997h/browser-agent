@@ -77,7 +77,7 @@ Links: {json.dumps([l.model_dump() for l in page_info.links], ensure_ascii=False
 Buttons: {json.dumps([b.model_dump() for b in page_info.buttons], ensure_ascii=False)}
 Inputs: {json.dumps([i.model_dump() for i in page_info.inputs], ensure_ascii=False)}
 
---- Recent Texts on Page (including JS alerts) ---
+--- Recent Texts on Page ---
 {json.dumps(page_info.texts, ensure_ascii=False)}
 
 --- Action History ---
@@ -111,11 +111,11 @@ IF YOU NEED TEXT INPUT FROM THE USER (e.g. 2FA Code, OTP, Email):
 IF YOU NEED THE USER TO CHOOSE AN OPTION (e.g. What to do next?):
 {{"command": "ask_user", "question": "How should I verify?", "input_type": "options", "options": ["Option 1", "Option 2"]}}
 
-IF THE GOAL IS DONE:
-{{"command": "finish", "status": "success", "message": "banana"}}
+IF THE GOAL IS DONE (e.g. You found the requested information, jobs, or prices):
+{{"command": "finish", "status": "success", "message": "Write the final answer, summary, or extracted data here in Arabic so the user can read it."}}
 
 IF YOU GIVE UP:
-{{"command": "finish", "status": "failed", "message": "apple"}}
+{{"command": "finish", "status": "failed", "message": "Explain why you failed here."}}
 
 OUTPUT YOUR JSON NOW:
 """
@@ -140,6 +140,6 @@ OUTPUT YOUR JSON NOW:
                 
             return command_json
         except json.JSONDecodeError as e:
-            return {"command": "finish", "status": "failed", "message": "apple", "description": "LLM failed to output JSON"}
+            return {"command": "finish", "status": "failed", "message": "JSON Parse Error", "description": "LLM failed to output JSON"}
         except Exception as e:
-            return {"command": "finish", "status": "failed", "message": "apple", "description": f"API Error: {str(e)}"}
+            return {"command": "finish", "status": "failed", "message": str(e), "description": f"API Error: {str(e)}"}

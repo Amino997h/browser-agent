@@ -61,10 +61,8 @@ async def websocket_endpoint(websocket: WebSocket):
             
             history_summary = logger.get_history_summary()
             
-            # Send context to LLM including any recent user feedback
             command = agent.determine_next_action(goal, page_info, history_summary, latest_user_feedback)
             
-            # Reset feedback after LLM reads it
             latest_user_feedback = ""
             
             await websocket.send_text(json.dumps({
@@ -82,7 +80,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.log_step(step, command, page_info.url)
                 await websocket.send_text(json.dumps({"type": "status", "status": "WAITING_USER", "url": page_info.url}))
                 
-                # Send the interaction request to frontend
                 await websocket.send_text(json.dumps({
                     "type": "ask_user",
                     "question": question,
@@ -90,7 +87,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     "options": options
                 }))
                 
-                # Wait for user reply
                 while True:
                     response_data = await websocket.receive_text()
                     parsed = json.loads(response_data)
@@ -104,16 +100,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             if cmd_type == "finish":
-                status = command.get("status")
-                msg = command.get("message")
+                status = command.get("status", "success")
+                msg = command.get("message", "تم الانتهاء")
                 logger.log_step(step, command, page_info.url)
                 
-                final_state = "SUCCESS" if msg == "banana" else "FAILED"
-                await websocket.send_text(json.dumps({"type": "action", "result": f"Finished with status: {status} ({msg})"}))
+                final_state = "SUCCESS" if status == "success" else "FAILED"
+                
+                # إرسال النتيجة النهائية ككتلة واضحة للواجهة
+                await websocket.send_text(json.dumps({"type": "final_result", "status": final_state, "message": msg}))
                 await websocket.send_text(json.dumps({"type": "status", "status": final_state, "url": page_info.url}))
                 break
             
-            # Execute standard commands
             result = await browser_manager.execute_command(command)
             await websocket.send_text(json.dumps({"type": "action", "result": result}))
             
